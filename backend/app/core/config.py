@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://evoshield.vercel.app",
+        "https://evoshield-waf.vercel.app",
         "https://*.vercel.app",
     ]
 
