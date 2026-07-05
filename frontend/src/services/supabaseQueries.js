@@ -82,6 +82,38 @@ export async function fetchTrafficChartData() {
   return Object.values(hourMap);
 }
 
+// ── Traffic by DAY (last N days, optional attack-type filter) ──────────────
+export async function fetchDailyTrafficData(days = 7, attackType = 'All') {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  let q = supabase
+    .from('attack_logs')
+    .select('timestamp, status, attack_type')
+    .gte('timestamp', since)
+    .order('timestamp', { ascending: true });
+  if (attackType && attackType !== 'All') q = q.eq('attack_type', attackType);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  // Build one bucket per day so empty days still show.
+  const buckets = {};
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    const key = d.toISOString().slice(0, 10);          // YYYY-MM-DD
+    const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    buckets[key] = { date: label, requests: 0, attacks: 0 };
+  }
+
+  (data || []).forEach(row => {
+    const key = new Date(row.timestamp).toISOString().slice(0, 10);
+    if (!buckets[key]) return;
+    buckets[key].requests++;
+    if (row.status === 'Blocked' || row.status === 'Healed') buckets[key].attacks++;
+  });
+
+  return Object.values(buckets);
+}
+
 // ── Attack Distribution (pie chart) ────────────────────────────────────────
 export async function fetchAttackDistribution() {
   const { data, error } = await supabase
@@ -200,6 +232,57 @@ export async function fetchWeeklyAttackData() {
   });
 
   return days.map((d, i) => map[jsDay[i]]);
+}
+
+// ── Period Analysis (history comparison by time range) ─────────────────────
+// Returns totals + per-attack-type breakdown for a given number of days,
+// plus the same window immediately before it (for trend comparison).
+export async function fetchPeriodAnalysis(days = 30) {
+  const now      = Date.now();
+  const start    = new Date(now - days * 86400000).toISOString();
+  const prevStart = new Date(now - 2 * days * 86400000).toISOString();
+
+  const [curRes, prevRes] = await Promise.all([
+    supabase.from('attack_logs')
+      .select('attack_type, severity, status, timestamp')
+      .gte('timestamp', start),
+    supabase.from('attack_logs')
+      .select('attack_type')
+      .gte('timestamp', prevStart).lt('timestamp', start),
+  ]);
+  if (curRes.error)  throw curRes.error;
+
+  const cur  = curRes.data || [];
+  const prev = prevRes.data || [];
+
+  // Per-type counts for the current window.
+  const byType = {};
+  cur.forEach(r => {
+    if (!r.attack_type || r.attack_type === 'Normal') return;
+    byType[r.attack_type] = (byType[r.attack_type] || 0) + 1;
+  });
+  const COLORS = ['#f44336','#ff9800','#7c4dff','#00bcd4','#607d8b','#00e676','#ffeb3b','#e91e63'];
+  const breakdown = Object.entries(byType)
+    .map(([name, count], i) => ({ name, count, color: COLORS[i % COLORS.length] }))
+    .sort((a, b) => b.count - a.count);
+
+  const totalAttacks = breakdown.reduce((s, b) => s + b.count, 0);
+  const prevTotal    = prev.filter(r => r.attack_type && r.attack_type !== 'Normal').length;
+  const withPct = breakdown.map(b => ({ ...b, pct: totalAttacks ? +((b.count / totalAttacks) * 100).toFixed(1) : 0 }));
+
+  const change = prevTotal ? +(((totalAttacks - prevTotal) / prevTotal) * 100).toFixed(1) : null;
+
+  return {
+    days,
+    totalAttacks,
+    prevTotal,
+    change,                                  // % change vs previous equal window (null if no prior data)
+    blocked: cur.filter(r => r.status === 'Blocked').length,
+    healed:  cur.filter(r => r.status === 'Healed').length,
+    critical: cur.filter(r => r.severity === 'Critical').length,
+    topAttack: withPct[0] || null,           // most common attack type
+    breakdown: withPct,                      // all types with count + pct
+  };
 }
 
 // ── Notifications ──────────────────────────────────────────────────────────

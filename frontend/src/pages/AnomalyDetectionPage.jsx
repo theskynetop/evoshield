@@ -15,7 +15,9 @@ import RefreshIcon      from '@mui/icons-material/Refresh';
 import { supabase }     from '../services/supabase';
 import { fetchModelStats, fetchAttackLogs } from '../services/supabaseQueries';
 
-const TooltipStyle = { background: 'rgba(13,27,42,0.97)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', fontSize: 12 };
+const TooltipStyle = { background: '#0d1b2a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' };
+const tooltipItemStyle  = { color: '#fff' };
+const tooltipLabelStyle = { color: 'rgba(255,255,255,0.7)', fontWeight: 700, marginBottom: 4 };
 
 // Derive scatter points from real attack logs
 function logsToScatter(logs) {
@@ -210,7 +212,7 @@ export default function AnomalyDetectionPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="x" name="Length" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: 'Payload+Path Length', position: 'bottom', fill: 'rgba(255,255,255,0.2)', fontSize: 10 }} />
                   <YAxis dataKey="y" name="AI Score" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 1]} />
-                  <Tooltip contentStyle={TooltipStyle} cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.2)' }} />
+                  <Tooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.2)' }} />
                   <Scatter name="Normal"  data={normals}  fill="#00e676" opacity={0.5} r={3} />
                   <Scatter name="Anomaly" data={anomalies} fill="#f44336" opacity={0.9} r={5} />
                 </ScatterChart>
@@ -234,7 +236,7 @@ export default function AnomalyDetectionPage() {
                 <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }} />
                 <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 9 }} />
                 <Radar name="%" dataKey="A" stroke="#7c4dff" fill="#7c4dff" fillOpacity={0.25} strokeWidth={2} />
-                <Tooltip contentStyle={TooltipStyle} />
+                <Tooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
               </RadarChart>
             </ResponsiveContainer>
           </Card>

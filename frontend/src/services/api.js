@@ -58,6 +58,10 @@ export const wafApi = {
   // Dashboard
   getDashboard:  ()       => api.get('/api/dashboard'),
   getStats:      ()       => api.get('/api/dashboard/stats'),
+
+  // Attack Simulator (live demo)
+  getAttackTypes: ()      => api.get('/api/simulate/types'),
+  simulateAttack: (data)  => api.post('/api/simulate/attack', data),
 };
 
 export default api;

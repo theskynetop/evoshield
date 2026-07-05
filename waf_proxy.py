@@ -25,6 +25,30 @@ from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
+import os as _os
+
+try:
+    from email_alerts import send_attack_alert as _send_email_direct
+except Exception as _e:
+    print(f"  [email] Direct alerts disabled: {_e}")
+    def _send_email_direct(*a, **k):
+        return False
+
+# Backend endpoint that sends the email AND inserts an in-app notification
+# for every user. Falls back to direct email if the backend is unreachable.
+ALERT_API = _os.getenv("ALERT_API_URL", "http://127.0.0.1:8001/api/alerts/email")
+
+
+def send_attack_alert(**kw):
+    try:
+        r = requests.post(ALERT_API, json=kw, timeout=4)
+        if r.status_code == 200:
+            return True
+    except Exception:
+        pass
+    # Backend down → at least try to send the email directly.
+    return _send_email_direct(**kw)
+
 SUPABASE_URL = "https://aeybayjzgdhjupiegymz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFleWJheWp6Z2RoanVwaWVneW16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MzY0NzIsImV4cCI6MjA5NzAxMjQ3Mn0.iLwJHGCw4VJDPHcsQSayJ4Ueptu-m4EKdncUvH8dKw0"
 
@@ -147,6 +171,20 @@ class WAFHandler(BaseHTTPRequestHandler):
         attack_type, severity, ai_score = detect_attack(path, query, body)
 
         ok, status = log_to_supabase(ip, method, path, query, attack_type, severity, ai_score, body, user_agent)
+
+        # Email alert on real attacks (throttled + severity-gated inside the module)
+        if attack_type:
+            payload = body or query
+            send_attack_alert(
+                attack_type=attack_type,
+                severity=severity,
+                source_ip=ip,
+                path=path,
+                method=method,
+                ai_score=ai_score,
+                payload=payload,
+                status=status,
+            )
 
         # Print to terminal
         tag = f"[{attack_type or 'Normal':20s}]" if attack_type else f"{'[Normal]':22s}"

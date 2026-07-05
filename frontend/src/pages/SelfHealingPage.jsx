@@ -35,6 +35,36 @@ const PATTERNS = {
   'Path Traversal':    String.raw`(\.\./){2,}|(%2e%2e%2f)+|(etc/passwd|win\.ini)`,
 };
 
+// For each attack type: the example payload that triggered healing, what the
+// attacker was trying to do, and how the generated rule stops it. This drives
+// the "Threat → Rule → Mitigation" story for the client demo.
+const ATTACK_INFO = {
+  'SQL Injection': {
+    payload:  "' OR '1'='1' --",
+    target:   '/login?username=admin',
+    goal:     'Bypass authentication by making the WHERE clause always true, logging in without a valid password.',
+    mitigation: 'The rule detects classic SQLi tautologies (OR 1=1), UNION SELECT data-exfiltration and DROP TABLE, and blocks the request before it reaches the database.',
+  },
+  'XSS': {
+    payload:  "<script>alert(document.cookie)</script>",
+    target:   '/comment?text=...',
+    goal:     "Inject JavaScript that runs in other users' browsers to steal session cookies and hijack accounts.",
+    mitigation: 'The rule matches <script> tags, javascript: URIs and on*= event handlers, neutralising the payload so it is never stored or reflected.',
+  },
+  'Command Injection': {
+    payload:  "; cat /etc/passwd",
+    target:   '/api/ping?host=...',
+    goal:     'Chain OS commands onto a server-side call to read sensitive files or open a reverse shell.',
+    mitigation: 'The rule flags shell metacharacters (; | & `) followed by system binaries (cat, whoami, curl…) and blocks command execution.',
+  },
+  'Path Traversal': {
+    payload:  "../../../../etc/passwd",
+    target:   '/download?file=...',
+    goal:     'Escape the web root using ../ sequences to read arbitrary files like /etc/passwd.',
+    mitigation: 'The rule catches repeated ../ (and its URL-encoded forms) plus known sensitive paths, stopping directory escape.',
+  },
+};
+
 function HealingPipeline({ onComplete }) {
   const [activeStep, setActive]   = useState(0);
   const [progress,   setProgress] = useState(0);
@@ -159,7 +189,7 @@ export default function SelfHealingPage() {
         status:         'Active',
       });
 
-      setGenRule({ name: ruleName, pattern, type: attackType, accuracy, fpRate, deployed: new Date().toLocaleString() });
+      setGenRule({ name: ruleName, pattern, type: attackType, accuracy, fpRate, deployed: new Date().toLocaleString(), info: ATTACK_INFO[attackType] });
       setCompleted(true);
       setRunning(false);
       loadHistory();
@@ -247,19 +277,57 @@ export default function SelfHealingPage() {
                 <Alert severity="success" sx={{ background: 'rgba(0,230,118,0.1)', color: '#b9f6ca', border: '1px solid rgba(0,230,118,0.25)' }}>
                   Rule deployed and healing event recorded successfully.
                 </Alert>
-                <Box sx={{ p: 2, background: 'rgba(0,0,0,0.3)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <Typography variant="caption" color="rgba(255,255,255,0.35)" display="block" mb={0.5} textTransform="uppercase" letterSpacing={1}>Rule Name</Typography>
-                  <Typography variant="body2" color="#00e676" fontWeight={700} fontFamily="monospace">{genRule.name}</Typography>
-                </Box>
-                <Box sx={{ p: 2, background: 'rgba(0,0,0,0.3)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" mb={0.5}>
-                    <Typography variant="caption" color="rgba(255,255,255,0.35)" textTransform="uppercase" letterSpacing={1}>Regex Pattern</Typography>
-                    <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.3)', p: 0.3 }} onClick={() => navigator.clipboard?.writeText(genRule.pattern)}>
-                      <ContentCopyIcon sx={{ fontSize: 13 }} />
-                    </IconButton>
-                  </Stack>
-                  <Typography variant="caption" fontFamily="monospace" color="#80deea" sx={{ wordBreak: 'break-all' }}>{genRule.pattern}</Typography>
-                </Box>
+
+                {/* Threat → Rule → Mitigation story */}
+                {genRule.info && (
+                  <Box sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    {/* 1. The attack */}
+                    <Box sx={{ p: 2, background: 'rgba(244,67,54,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                        <Box sx={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(244,67,54,0.2)', color: '#f44336', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>1</Box>
+                        <Typography variant="caption" fontWeight={800} color="#f44336" textTransform="uppercase" letterSpacing={1}>Attack Detected — {genRule.type}</Typography>
+                      </Stack>
+                      <Typography variant="caption" color="rgba(255,255,255,0.4)" display="block">Malicious payload on <span style={{ color: '#80deea', fontFamily: 'monospace' }}>{genRule.info.target}</span></Typography>
+                      <Box sx={{ mt: 0.8, p: 1, background: 'rgba(0,0,0,0.35)', borderRadius: 1, border: '1px solid rgba(244,67,54,0.2)' }}>
+                        <Typography variant="caption" fontFamily="monospace" color="#ff8a80" sx={{ wordBreak: 'break-all' }}>{genRule.info.payload}</Typography>
+                      </Box>
+                      <Typography variant="caption" color="rgba(255,255,255,0.5)" display="block" mt={1}><strong style={{ color: '#ffab91' }}>Attacker goal:</strong> {genRule.info.goal}</Typography>
+                    </Box>
+
+                    {/* 2. The generated rule */}
+                    <Box sx={{ p: 2, background: 'rgba(124,77,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                        <Box sx={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(124,77,255,0.2)', color: '#b39ddb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>2</Box>
+                        <Typography variant="caption" fontWeight={800} color="#b39ddb" textTransform="uppercase" letterSpacing={1}>Auto-Generated Rule</Typography>
+                      </Stack>
+                      <Typography variant="caption" color="rgba(255,255,255,0.4)">Rule name</Typography>
+                      <Typography variant="body2" color="#00e676" fontWeight={700} fontFamily="monospace" mb={1}>{genRule.name}</Typography>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="caption" color="rgba(255,255,255,0.4)">Regex pattern (GA-evolved)</Typography>
+                        <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.3)', p: 0.3 }} onClick={() => navigator.clipboard?.writeText(genRule.pattern)}>
+                          <ContentCopyIcon sx={{ fontSize: 13 }} />
+                        </IconButton>
+                      </Stack>
+                      <Box sx={{ mt: 0.5, p: 1, background: 'rgba(0,0,0,0.35)', borderRadius: 1, border: '1px solid rgba(124,77,255,0.2)' }}>
+                        <Typography variant="caption" fontFamily="monospace" color="#80deea" sx={{ wordBreak: 'break-all' }}>{genRule.pattern}</Typography>
+                      </Box>
+                    </Box>
+
+                    {/* 3. How it's tackled */}
+                    <Box sx={{ p: 2, background: 'rgba(0,230,118,0.06)' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                        <Box sx={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,230,118,0.2)', color: '#00e676', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>3</Box>
+                        <Typography variant="caption" fontWeight={800} color="#00e676" textTransform="uppercase" letterSpacing={1}>How It's Now Blocked</Typography>
+                      </Stack>
+                      <Typography variant="caption" color="rgba(255,255,255,0.6)" display="block">{genRule.info.mitigation}</Typography>
+                      <Stack direction="row" spacing={1} alignItems="center" mt={1.2}>
+                        <Chip label="Before: Allowed ✕" size="small" sx={{ background: 'rgba(244,67,54,0.12)', color: '#ff8a80', fontSize: '0.6rem', height: 20, fontWeight: 700 }} />
+                        <Typography color="rgba(255,255,255,0.3)">→</Typography>
+                        <Chip label="After: Blocked ✓" size="small" sx={{ background: 'rgba(0,230,118,0.12)', color: '#00e676', fontSize: '0.6rem', height: 20, fontWeight: 700 }} />
+                      </Stack>
+                    </Box>
+                  </Box>
+                )}
                 <Grid container spacing={1.5}>
                   {[
                     { label: 'Type',     value: genRule.type,           color: '#00bcd4' },

@@ -15,6 +15,7 @@ import AttackLogsPage      from './pages/AttackLogsPage';
 import AnomalyDetectionPage from './pages/AnomalyDetectionPage';
 import RuleManagementPage  from './pages/RuleManagementPage';
 import SelfHealingPage     from './pages/SelfHealingPage';
+import SimulatorPage       from './pages/SimulatorPage';
 import ReportsPage         from './pages/ReportsPage';
 import NotificationsPage   from './pages/NotificationsPage';
 import SettingsPage        from './pages/SettingsPage';
@@ -50,6 +51,7 @@ export default function App() {
                   <Route path="/anomaly"        element={<AnomalyDetectionPage />} />
                   <Route path="/rules"          element={<RuleManagementPage />} />
                   <Route path="/healing"        element={<SelfHealingPage />} />
+                  <Route path="/simulator"      element={<SimulatorPage />} />
                   <Route path="/reports"        element={<ReportsPage />} />
                   <Route path="/notifications"  element={<NotificationsPage />} />
                   <Route path="/settings"       element={<SettingsPage />} />

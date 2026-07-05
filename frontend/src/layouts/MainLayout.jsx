@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Box, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
@@ -20,6 +20,8 @@ import SecurityIcon     from '@mui/icons-material/Security';
 import LogoutIcon       from '@mui/icons-material/Logout';
 import { useAuth }      from '../context/AuthContext';
 import { useThemeMode } from '../context/ThemeContext';
+import { supabase }     from '../services/supabase';
+import { fetchNotifications } from '../services/supabaseQueries';
 import Brightness4Icon  from '@mui/icons-material/Brightness4';
 import Brightness7Icon  from '@mui/icons-material/Brightness7';
 import HomeIcon         from '@mui/icons-material/Home';
@@ -34,6 +36,7 @@ const NAV_ITEMS = [
   { path: '/anomaly',            label: 'AI Detection',     icon: <PsychologyIcon /> },
   { path: '/rules',              label: 'Rule Management',  icon: <ShieldIcon /> },
   { path: '/healing',            label: 'Self-Healing',     icon: <AutoFixHighIcon /> },
+  { path: '/simulator',          label: 'Attack Simulator', icon: <BugReportIcon /> },
   { path: '/reports',            label: 'Reports',          icon: <AssessmentIcon /> },
 ];
 
@@ -51,6 +54,40 @@ export default function MainLayout() {
   const isMobile    = useMediaQuery(theme.breakpoints.down('md'));
   const [open,  setOpen]  = useState(!isMobile);
   const [mOpen, setMOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+
+  // Load current unread notification count.
+  const loadUnread = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const data = await fetchNotifications(user.id);
+      setUnread(data.filter(n => !n.read).length);
+    } catch { /* ignore — badge just stays as-is */ }
+  }, [user?.id]);
+
+  useEffect(() => { loadUnread(); }, [loadUnread]);
+
+  // Realtime: bump/refresh the badge as notifications are inserted or read.
+  useEffect(() => {
+    if (!user?.id) return;
+    const ch = supabase.channel('notif_badge')
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, () => setUnread(c => c + 1))
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, loadUnread)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [user?.id, loadUnread]);
+
+  // Re-sync the count whenever the user visits the notifications page
+  // (they may have marked items read there).
+  useEffect(() => {
+    if (location.pathname === '/notifications') loadUnread();
+  }, [location.pathname, loadUnread]);
 
   const drawerWidth = open ? DRAWER_WIDTH : MINI_WIDTH;
   const handleSignOut = async () => { await signOut(); navigate('/login'); };
@@ -224,9 +261,16 @@ export default function MainLayout() {
                   <HomeIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Notifications">
+              <Tooltip title={unread > 0 ? `${unread} unread notification${unread > 1 ? 's' : ''}` : 'Notifications'}>
                 <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.5)' }} onClick={() => navigate('/notifications')}>
-                  <NotificationsIcon fontSize="small" />
+                  <Badge
+                    badgeContent={unread}
+                    max={99}
+                    overlap="circular"
+                    sx={{ '& .MuiBadge-badge': { background: '#f44336', color: '#fff', fontWeight: 700, fontSize: '0.6rem', minWidth: 16, height: 16 } }}
+                  >
+                    <NotificationsIcon fontSize="small" />
+                  </Badge>
                 </IconButton>
               </Tooltip>
               <Avatar sx={{ width: 30, height: 30, background: 'linear-gradient(135deg,#00e676,#00bcd4)', fontSize: 12, fontWeight: 700, color: '#0a0e1a', ml: 0.5, cursor: 'pointer' }}

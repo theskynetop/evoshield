@@ -35,3 +35,7 @@ logs/
 
 # Test artifacts
 *.csv
+
+# Local SQLite DB (build artifact)
+*.db
+backend/sh_waf.db

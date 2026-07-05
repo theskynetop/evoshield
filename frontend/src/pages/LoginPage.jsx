@@ -52,6 +52,13 @@ export default function LoginPage() {
     },
     '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.4)' },
     '& .MuiInputLabel-root.Mui-focused': { color: '#00e676' },
+    // Kill the browser's blue/yellow autofill background — keep the dark theme.
+    '& input:-webkit-autofill, & input:-webkit-autofill:hover, & input:-webkit-autofill:focus, & input:-webkit-autofill:active': {
+      WebkitTextFillColor: '#fff',
+      WebkitBoxShadow: '0 0 0 1000px transparent inset',
+      transition: 'background-color 9999s ease-in-out 0s',
+      caretColor: '#fff',
+    },
   };
 
   return (

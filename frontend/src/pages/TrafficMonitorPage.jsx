@@ -12,7 +12,9 @@ import RefreshIcon           from '@mui/icons-material/Refresh';
 import { supabase }          from '../services/supabase';
 import { fetchAttackLogs }   from '../services/supabaseQueries';
 
-const TooltipStyle = { background: 'rgba(13,27,42,0.97)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', fontSize: 12 };
+const TooltipStyle = { background: '#0d1b2a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' };
+const tooltipItemStyle  = { color: '#fff' };
+const tooltipLabelStyle = { color: 'rgba(255,255,255,0.7)', fontWeight: 700, marginBottom: 4 };
 
 const statusColor = { Blocked: '#f44336', Healed: '#00e676', Allowed: '#00bcd4', Flagged: '#ff9800' };
 const methodColor = { GET: '#00bcd4', POST: '#7c4dff', PUT: '#ff9800', DELETE: '#f44336', PATCH: '#00e676' };
@@ -155,7 +157,7 @@ export default function TrafficMonitorPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="time" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={TooltipStyle} />
+              <Tooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
               <Area type="monotone" dataKey="requests" stroke="#00e676" fill="url(#tgReq)" strokeWidth={2} name="Requests" />
               <Area type="monotone" dataKey="blocked"  stroke="#f44336" fill="url(#tgBlk)" strokeWidth={1.5} name="Blocked" />
             </AreaChart>

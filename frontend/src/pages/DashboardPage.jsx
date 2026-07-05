@@ -19,14 +19,23 @@ import CheckCircleIcon  from '@mui/icons-material/CheckCircle';
 import {
   fetchDashboardStats,
   fetchTrafficChartData,
+  fetchDailyTrafficData,
   fetchAttackDistribution,
   fetchHealingActivity,
   fetchRecentAttacks,
 } from '../services/supabaseQueries';
+import { ToggleButton, ToggleButtonGroup, TextField, MenuItem } from '@mui/material';
+
+const TRAFFIC_RANGES = { '24H': 0, '7D': 7, '30D': 30, '90D': 90 };
+const ATTACK_FILTER_TYPES = ['All', 'SQL Injection', 'XSS', 'Command Injection', 'Path Traversal', 'CSRF', 'XXE', 'SSRF', 'Brute Force'];
+const trafMenuProps = { PaperProps: { sx: { background: '#0d1b2a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } } };
 
 const severityColor = { Critical: '#f44336', High: '#ff9800', Medium: '#ffeb3b', Low: '#00e676' };
 const statusColor   = { Blocked: '#f44336', Healed: '#00e676', Allowed: '#607d8b' };
-const TooltipStyle  = { background: 'rgba(13,27,42,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', fontSize: 12 };
+const TooltipStyle       = { background: '#0d1b2a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' };
+const tooltipItemStyle   = { color: '#fff' };
+const tooltipLabelStyle  = { color: 'rgba(255,255,255,0.7)', fontWeight: 700, marginBottom: 4 };
+const tooltipCursor      = { fill: 'rgba(255,255,255,0.06)' };
 
 function StatCard({ label, value, icon, color, bg, loading }) {
   return (
@@ -65,19 +74,20 @@ export default function DashboardPage() {
   const [recentAtks,   setRecent]     = useState([]);
   const [loading,      setLoading]    = useState(true);
   const [lastRefresh,  setRefresh]    = useState(new Date());
+  const [trafRange,    setTrafRange]  = useState('24H');    // 24H | 7D | 30D | 90D
+  const [trafType,     setTrafType]   = useState('All');    // attack-type filter
+  const [trafLoading,  setTrafLoading]= useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [s, t, d, h, r] = await Promise.all([
+      const [s, d, h, r] = await Promise.all([
         fetchDashboardStats(),
-        fetchTrafficChartData(),
         fetchAttackDistribution(),
         fetchHealingActivity(),
         fetchRecentAttacks(6),
       ]);
       setStats(s);
-      setTraffic(t);
       setDist(d);
       setHealing(h);
       setRecent(r);
@@ -94,6 +104,21 @@ export default function DashboardPage() {
     const iv = setInterval(load, 30000);
     return () => clearInterval(iv);
   }, []);
+
+  // Reload the Traffic Overview whenever the range or attack-type filter changes.
+  useEffect(() => {
+    let cancelled = false;
+    setTrafLoading(true);
+    const days = TRAFFIC_RANGES[trafRange];
+    const loader = days === 0
+      ? fetchTrafficChartData()                       // hourly, last 24h (ignores type filter)
+      : fetchDailyTrafficData(days, trafType);        // daily buckets, filterable
+    loader
+      .then(d => { if (!cancelled) setTraffic(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setTrafLoading(false); });
+    return () => { cancelled = true; };
+  }, [trafRange, trafType]);
 
   const statCards = [
     { label: 'Attacks Today',    value: stats?.totalRequests?.toLocaleString()  || '0', icon: <TrafficIcon />,    color: '#00e676', bg: 'rgba(0,230,118,0.08)'   },
@@ -138,21 +163,43 @@ export default function DashboardPage() {
       {/* Charts Row 1 */}
       <Grid container spacing={2.5} mb={2.5}>
         {/* Traffic Chart */}
-        <Grid item xs={12} lg={8}>
-          <Card sx={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 3, p: 2.5, height: 320 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+        <Grid item xs={12} lg={8} sx={{ display: 'flex' }}>
+          <Card sx={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 3, p: 2.5, minHeight: 320, width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'center' }} spacing={1.5} mb={2}>
               <Box>
                 <Typography variant="subtitle1" fontWeight={800} color="white">Traffic Overview</Typography>
-                <Typography variant="caption" color="rgba(255,255,255,0.35)">Attacks logged in the last 24 hours</Typography>
+                <Typography variant="caption" color="rgba(255,255,255,0.35)">
+                  {trafRange === '24H'
+                    ? 'Attacks logged in the last 24 hours (hourly)'
+                    : `Daily attacks over the last ${TRAFFIC_RANGES[trafRange]} days${trafType !== 'All' ? ` — ${trafType}` : ''}`}
+                </Typography>
               </Box>
-              <Chip label="24H" size="small" sx={{ background: 'rgba(0,230,118,0.1)', color: '#00e676', border: '1px solid rgba(0,230,118,0.2)', fontWeight: 700, fontSize: '0.65rem' }} />
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                {/* Attack-type filter (only meaningful for day ranges) */}
+                <TextField select size="small" value={trafType} onChange={e => setTrafType(e.target.value)}
+                  disabled={trafRange === '24H'}
+                  SelectProps={{ MenuProps: trafMenuProps }}
+                  sx={{ minWidth: 130, '& .MuiOutlinedInput-root': { color: '#fff', fontSize: 12, background: 'rgba(255,255,255,0.04)', borderRadius: 1.5,
+                    '& fieldset': { borderColor: 'rgba(255,255,255,0.12)' }, '&.Mui-focused fieldset': { borderColor: '#00e676' } },
+                    '& .MuiSelect-icon': { color: 'rgba(255,255,255,0.4)' }, '& .Mui-disabled': { opacity: 0.4 } }}>
+                  {ATTACK_FILTER_TYPES.map(t => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t === 'All' ? 'All Types' : t}</MenuItem>)}
+                </TextField>
+                {/* Range toggle */}
+                <ToggleButtonGroup value={trafRange} exclusive size="small"
+                  onChange={(_, v) => v && setTrafRange(v)}
+                  sx={{ '& .MuiToggleButton-root': { color: 'rgba(255,255,255,0.5)', borderColor: 'rgba(255,255,255,0.15)', px: 1.3, py: 0.4, fontSize: 11, fontWeight: 700,
+                    '&.Mui-selected': { background: 'rgba(0,230,118,0.15)', color: '#00e676', '&:hover': { background: 'rgba(0,230,118,0.22)' } } } }}>
+                  {Object.keys(TRAFFIC_RANGES).map(r => <ToggleButton key={r} value={r}>{r}</ToggleButton>)}
+                </ToggleButtonGroup>
+              </Stack>
             </Stack>
-            {loading ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 230 }}>
+            {loading || trafLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 230 }}>
                 <CircularProgress sx={{ color: '#00e676' }} />
               </Box>
             ) : (
-              <ResponsiveContainer width="100%" height={230}>
+              <Box sx={{ flex: 1, minHeight: 230 }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trafficData} margin={{ top: 5, right: 10, bottom: 0, left: -20 }}>
                   <defs>
                     <linearGradient id="gRequests" x1="0" y1="0" x2="0" y2="1">
@@ -165,21 +212,22 @@ export default function DashboardPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="time" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey={trafRange === '24H' ? 'time' : 'date'} tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <RTooltip contentStyle={TooltipStyle} />
+                  <RTooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
                   <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }} />
                   <Area type="monotone" dataKey="requests" stroke="#00e676" strokeWidth={2} fill="url(#gRequests)" name="Total Logs" />
                   <Area type="monotone" dataKey="attacks"  stroke="#f44336" strokeWidth={2} fill="url(#gAttacks)"  name="Attacks"    />
                 </AreaChart>
               </ResponsiveContainer>
+              </Box>
             )}
           </Card>
         </Grid>
 
         {/* Attack Distribution */}
         <Grid item xs={12} lg={4}>
-          <Card sx={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 3, p: 2.5, height: 320 }}>
+          <Card sx={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 3, p: 2.5, minHeight: 320 }}>
             <Typography variant="subtitle1" fontWeight={800} color="white" mb={0.5}>Attack Distribution</Typography>
             <Typography variant="caption" color="rgba(255,255,255,0.35)" display="block" mb={1}>Real breakdown by type</Typography>
             {loading ? (
@@ -187,27 +235,39 @@ export default function DashboardPage() {
             ) : attackDist.length === 0 ? (
               <Box sx={{ textAlign: 'center', py: 4 }}><Typography color="rgba(255,255,255,0.3)" variant="body2">No attack data yet</Typography></Box>
             ) : (
-              <>
-                <ResponsiveContainer width="100%" height={180}>
-                  <PieChart>
-                    <Pie data={attackDist} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={3}>
-                      {attackDist.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <RTooltip contentStyle={TooltipStyle} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <Stack spacing={0.6}>
-                  {attackDist.map(t => (
-                    <Stack key={t.name} direction="row" justifyContent="space-between" alignItems="center">
-                      <Stack direction="row" spacing={0.8} alignItems="center">
-                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: t.color }} />
-                        <Typography variant="caption" color="rgba(255,255,255,0.55)">{t.name}</Typography>
-                      </Stack>
-                      <Typography variant="caption" color="white" fontWeight={700}>{t.value}</Typography>
+              (() => {
+                const distTotal = attackDist.reduce((sum, t) => sum + t.value, 0) || 1;
+                const pct = v => ((v / distTotal) * 100).toFixed(1);
+                return (
+                  <>
+                    <ResponsiveContainer width="100%" height={190}>
+                      <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                        <Pie data={attackDist} cx="50%" cy="50%" innerRadius={48} outerRadius={72} dataKey="value" paddingAngle={3}
+                          label={({ percent }) => percent >= 0.05 ? `${(percent * 100).toFixed(0)}%` : ''}
+                          labelLine={false}
+                          style={{ fontSize: 10, fontWeight: 700 }}>
+                          {attackDist.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        </Pie>
+                        <RTooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle}
+                          formatter={(value, name) => [`${value} (${pct(value)}%)`, name]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <Stack spacing={0.7} mt={1}>
+                      {attackDist.map(t => (
+                        <Stack key={t.name} direction="row" justifyContent="space-between" alignItems="center">
+                          <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
+                            <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: t.color, flexShrink: 0 }} />
+                            <Typography variant="caption" color="rgba(255,255,255,0.6)" noWrap>{t.name}</Typography>
+                          </Stack>
+                          <Typography variant="caption" color="white" fontWeight={700} sx={{ flexShrink: 0, ml: 1 }}>
+                            {t.value} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>({pct(t.value)}%)</span>
+                          </Typography>
+                        </Stack>
+                      ))}
                     </Stack>
-                  ))}
-                </Stack>
-              </>
+                  </>
+                );
+              })()
             )}
           </Card>
         </Grid>
@@ -225,7 +285,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="day" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <RTooltip contentStyle={TooltipStyle} />
+                <RTooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={tooltipCursor} />
                 <Bar dataKey="rules" fill="url(#barGrad)" radius={[4, 4, 0, 0]} name="Rules Healed" />
                 <defs>
                   <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">

@@ -161,10 +161,10 @@ export default function NotificationsPage() {
                   <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                     <Box>
                       <Typography variant="body2" fontWeight={n.read ? 500 : 800} color={n.read ? 'rgba(255,255,255,0.6)' : 'white'} sx={{ lineHeight: 1.4 }}>
-                        {n.title || n.message}
+                        {n.title || n.body || n.message}
                       </Typography>
-                      {n.title && n.message && (
-                        <Typography variant="caption" color="rgba(255,255,255,0.4)" display="block" mt={0.3}>{n.message}</Typography>
+                      {n.title && (n.body || n.message) && (
+                        <Typography variant="caption" color="rgba(255,255,255,0.4)" display="block" mt={0.3}>{n.body || n.message}</Typography>
                       )}
                     </Box>
                     <Stack direction="row" spacing={0.5} alignItems="center" ml={1}>

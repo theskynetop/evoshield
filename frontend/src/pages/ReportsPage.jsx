@@ -10,13 +10,21 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import TableChartIcon  from '@mui/icons-material/TableChart';
 import AssessmentIcon  from '@mui/icons-material/Assessment';
 import RefreshIcon     from '@mui/icons-material/Refresh';
+import TrendingUpIcon   from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { fetchAttackLogs, fetchWeeklyAttackData, fetchAttackDistribution } from '../services/supabaseQueries';
+import { fetchAttackLogs, fetchWeeklyAttackData, fetchAttackDistribution, fetchPeriodAnalysis } from '../services/supabaseQueries';
+
+const PERIOD_DAYS = { 'Last 24 Hours': 1, 'Last 7 Days': 7, 'Last 30 Days': 30, 'Last 90 Days': 90 };
 
 const PERIODS     = ['Last 24 Hours','Last 7 Days','Last 30 Days','Last 90 Days'];
 const FORMATS     = ['CSV','JSON'];
 const REPORT_TYPES= ['Attack Summary','Traffic Analysis','Rule Performance'];
-const TooltipStyle= { background: 'rgba(13,27,42,0.97)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', fontSize: 12 };
+const TooltipStyle= { background: '#0d1b2a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' };
+const tooltipItemStyle  = { color: '#fff' };
+const tooltipLabelStyle = { color: 'rgba(255,255,255,0.7)', fontWeight: 700, marginBottom: 4 };
+const tooltipCursor     = { fill: 'rgba(255,255,255,0.06)' };
 
 const fieldSx = {
   '& .MuiOutlinedInput-root': {
@@ -42,6 +50,8 @@ export default function ReportsPage() {
   const [weeklyData,  setWeekly]   = useState([]);
   const [pieData,     setPie]      = useState([]);
   const [topSources,  setTopSrc]   = useState([]);
+  const [analysis,    setAnalysis] = useState(null);
+  const [analyzing,   setAnalyzing]= useState(true);
 
   const load = async () => {
     setLoading(true);
@@ -68,6 +78,17 @@ export default function ReportsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Re-run period analysis whenever the selected time period changes.
+  useEffect(() => {
+    let cancelled = false;
+    setAnalyzing(true);
+    fetchPeriodAnalysis(PERIOD_DAYS[period] || 30)
+      .then(a => { if (!cancelled) setAnalysis(a); })
+      .catch(() => { if (!cancelled) setAnalysis(null); })
+      .finally(() => { if (!cancelled) setAnalyzing(false); });
+    return () => { cancelled = true; };
+  }, [period]);
 
   const exportCSV = (logs) => {
     const headers = 'ID,Time,Type,IP,Path,Severity,Status,AI Score\n';
@@ -187,6 +208,84 @@ export default function ReportsPage() {
               ))}
             </Grid>
 
+            {/* Period Comparison — history by time range */}
+            <Card sx={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(0,188,212,0.2)', borderRadius: 3, p: 2.5 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.5}>
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={800} color="white">Period Analysis</Typography>
+                  <Typography variant="caption" color="rgba(255,255,255,0.35)">Attacks in the {period.toLowerCase()} — vs the previous {period.replace('Last ', '').toLowerCase()}</Typography>
+                </Box>
+                <Chip label={period} size="small" sx={{ background: 'rgba(0,188,212,0.12)', color: '#00bcd4', fontWeight: 700, fontSize: '0.65rem', border: '1px solid rgba(0,188,212,0.25)' }} />
+              </Stack>
+
+              {analyzing ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 140 }}><CircularProgress sx={{ color: '#00bcd4' }} /></Box>
+              ) : !analysis || analysis.totalAttacks === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}><Typography color="rgba(255,255,255,0.3)" variant="body2">No attacks in this period.</Typography></Box>
+              ) : (
+                <>
+                  {/* Headline numbers */}
+                  <Grid container spacing={2} mb={2}>
+                    <Grid item xs={6} sm={3}>
+                      <Box>
+                        <Typography variant="h4" fontWeight={900} color="white">{analysis.totalAttacks.toLocaleString()}</Typography>
+                        <Typography variant="caption" color="rgba(255,255,255,0.4)">Total Attacks</Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Box>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          {analysis.change == null ? (
+                            <Typography variant="h5" fontWeight={900} color="rgba(255,255,255,0.5)">—</Typography>
+                          ) : (
+                            <>
+                              {analysis.change >= 0
+                                ? <TrendingUpIcon sx={{ color: '#f44336', fontSize: 22 }} />
+                                : <TrendingDownIcon sx={{ color: '#00e676', fontSize: 22 }} />}
+                              <Typography variant="h5" fontWeight={900} color={analysis.change >= 0 ? '#f44336' : '#00e676'}>
+                                {analysis.change >= 0 ? '+' : ''}{analysis.change}%
+                              </Typography>
+                            </>
+                          )}
+                        </Stack>
+                        <Typography variant="caption" color="rgba(255,255,255,0.4)">vs previous period</Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      {analysis.topAttack && (
+                        <Box sx={{ p: 1.5, background: alpha(analysis.topAttack.color, 0.1), border: `1px solid ${alpha(analysis.topAttack.color, 0.3)}`, borderRadius: 2 }}>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <LocalFireDepartmentIcon sx={{ color: analysis.topAttack.color, fontSize: 24 }} />
+                            <Box>
+                              <Typography variant="caption" color="rgba(255,255,255,0.5)" display="block">Most frequent attack</Typography>
+                              <Typography variant="body2" fontWeight={800} color="white">
+                                {analysis.topAttack.name} <span style={{ color: analysis.topAttack.color }}>· {analysis.topAttack.count} ({analysis.topAttack.pct}%)</span>
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        </Box>
+                      )}
+                    </Grid>
+                  </Grid>
+
+                  {/* Per-type breakdown bars */}
+                  <Stack spacing={1}>
+                    {analysis.breakdown.map(b => (
+                      <Box key={b.name}>
+                        <Stack direction="row" justifyContent="space-between" mb={0.3}>
+                          <Typography variant="caption" color="rgba(255,255,255,0.6)">{b.name}</Typography>
+                          <Typography variant="caption" color="white" fontWeight={700}>{b.count} <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>({b.pct}%)</span></Typography>
+                        </Stack>
+                        <LinearProgress variant="determinate" value={b.pct}
+                          sx={{ height: 6, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)',
+                            '& .MuiLinearProgress-bar': { background: b.color, borderRadius: 3 } }} />
+                      </Box>
+                    ))}
+                  </Stack>
+                </>
+              )}
+            </Card>
+
             {/* Weekly Bar Chart */}
             <Card sx={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 3, p: 2.5, height: 240 }}>
               <Typography variant="subtitle2" fontWeight={700} color="white" mb={1}>Weekly Attack Overview</Typography>
@@ -198,7 +297,7 @@ export default function ReportsPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis dataKey="day" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={TooltipStyle} />
+                    <Tooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} cursor={tooltipCursor} />
                     <Bar dataKey="attacks" fill="#f44336" radius={[3,3,0,0]} name="Total Attacks" opacity={0.7} />
                     <Bar dataKey="blocked" fill="#00e676" radius={[3,3,0,0]} name="Blocked" />
                   </BarChart>
@@ -216,10 +315,19 @@ export default function ReportsPage() {
                   : (
                     <ResponsiveContainer width="100%" height={150}>
                       <PieChart>
-                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
+                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}
+                          label={({ value }) => {
+                            const tot = pieData.reduce((s, p) => s + p.value, 0) || 1;
+                            return `${((value / tot) * 100).toFixed(0)}%`;
+                          }}
+                          labelLine={false} style={{ fontSize: 9, fontWeight: 700 }}>
                           {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
                         </Pie>
-                        <Tooltip contentStyle={TooltipStyle} />
+                        <Tooltip contentStyle={TooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle}
+                          formatter={(value, name) => {
+                            const tot = pieData.reduce((s, p) => s + p.value, 0) || 1;
+                            return [`${value} (${((value / tot) * 100).toFixed(1)}%)`, name];
+                          }} />
                       </PieChart>
                     </ResponsiveContainer>
                   )}

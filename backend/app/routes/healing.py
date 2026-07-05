@@ -7,6 +7,7 @@ from ..core.database import get_db
 from ..models.models import HealingEvent, WafRule
 from ..ml.healing import genetic_rule_generation
 from ..schemas.schemas import HealingResult
+from .alerts import _notify_all_users
 
 router = APIRouter(prefix="/api/healing", tags=["Self-Healing"])
 
@@ -40,6 +41,14 @@ def trigger_healing(
     )
     db.add(event)
     db.commit()
+
+    # Notify every user that the WAF auto-healed (green 'healing' notification).
+    _notify_all_users(
+        "healing",
+        "Self-healing rule deployed",
+        f"Auto-generated rule '{result['name']}' for {attack_type} "
+        f"(accuracy {result['accuracy']}%, FP {result['fp_rate']}%).",
+    )
 
     return HealingResult(
         success    = True,

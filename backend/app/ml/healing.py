@@ -38,8 +38,15 @@ PATTERN_TOKENS = {
 }
 
 def fitness(pattern: str, positives: list[str], negatives: list[str]) -> float:
-    tp = sum(1 for s in positives if re.search(pattern, s))
-    fp = sum(1 for s in negatives if re.search(pattern, s))
+    # Crossover/mutation can produce patterns that don't compile (e.g. an inline
+    # (?i) flag that ends up mid-expression — a hard error on Python 3.11+).
+    # Treat any uncompilable candidate as worthless instead of crashing.
+    try:
+        rx = re.compile(pattern)
+    except re.error:
+        return 0.0
+    tp = sum(1 for s in positives if rx.search(s))
+    fp = sum(1 for s in negatives if rx.search(s))
     fn = len(positives) - tp
 
     precision = tp / (tp + fp + 1e-9)
@@ -106,9 +113,17 @@ def genetic_rule_generation(
 
         population = elite + offspring
 
-    final_fp   = sum(1 for n in negatives if re.search(best, n))
+    # `best` may still be an uncompilable raw token if every candidate scored 0;
+    # fall back to a safe literal so the final scoring never crashes.
+    try:
+        best_rx = re.compile(best)
+    except re.error:
+        best = re.escape(evasion_payload)
+        best_rx = re.compile(best)
+
+    final_fp   = sum(1 for n in negatives if best_rx.search(n))
     fp_rate    = final_fp / max(len(negatives), 1)
-    tp         = sum(1 for p in positives if re.search(best, p))
+    tp         = sum(1 for p in positives if best_rx.search(p))
     accuracy   = tp / max(len(positives), 1)
 
     return {

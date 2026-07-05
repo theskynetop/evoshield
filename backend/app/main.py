@@ -4,7 +4,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 from .core.config import get_settings
 from .core.database import Base, engine
-from .routes import dashboard, logs, rules, ml, healing, traffic, reports
+from .routes import dashboard, logs, rules, ml, healing, traffic, reports, alerts, simulate
 
 settings = get_settings()
 
@@ -37,6 +37,8 @@ app.include_router(ml.router)
 app.include_router(healing.router)
 app.include_router(traffic.router)
 app.include_router(reports.router)
+app.include_router(alerts.router)
+app.include_router(simulate.router)
 
 @app.get("/", tags=["Health"])
 def root():

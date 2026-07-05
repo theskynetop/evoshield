@@ -10,7 +10,11 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
-    DATABASE_URL: str = ""
+    # Falls back to a local SQLite file when no Postgres URL is configured,
+    # so the API boots without the Supabase DB password. The frontend reads
+    # live data directly from Supabase REST, so this only backs the API's
+    # own endpoints.
+    DATABASE_URL: str = "sqlite:///./sh_waf.db"
 
     SECRET_KEY: str = "change-me-in-production-sh-waf-secret"
     ALGORITHM:  str = "HS256"
