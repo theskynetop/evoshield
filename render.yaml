@@ -17,4 +17,4 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: '["https://evoshield.vercel.app","http://localhost:5173"]'
+        value: '["https://evoshield-waf.vercel.app","https://frontend-one-ivory-daqy44n4d5.vercel.app","http://localhost:5173"]'
