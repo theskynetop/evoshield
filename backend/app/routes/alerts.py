@@ -1,22 +1,23 @@
 """
 Email Alert endpoint
 ====================
-POST /api/alerts/email  — send an attack-alert email via Gmail SMTP.
+POST /api/alerts/email  — send an attack-alert email via the Resend HTTPS API.
+
+Render's free plan blocks outbound SMTP ports, so raw smtplib to Gmail
+fails with "Network is unreachable". Resend's API is plain HTTPS (443),
+which is never blocked.
 
 Credentials come from environment variables (loaded from the project .env):
-  ALERT_FROM_EMAIL, ALERT_APP_PASSWORD, ALERT_TO_EMAIL,
-  ALERT_SMTP_HOST, ALERT_SMTP_PORT, ALERT_MIN_SEVERITY, ALERT_COOLDOWN_SEC
+  RESEND_API_KEY, ALERT_FROM_EMAIL, ALERT_TO_EMAIL,
+  ALERT_MIN_SEVERITY, ALERT_COOLDOWN_SEC
 """
 
 import os
-import ssl
 import time
-import smtplib
 import threading
 import urllib.request
 import urllib.error
 import json as _json
-from email.message import EmailMessage
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -38,11 +39,9 @@ except Exception:
 
 router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
 
-SMTP_HOST    = os.getenv("ALERT_SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT    = int(os.getenv("ALERT_SMTP_PORT", "587"))
-FROM_EMAIL   = os.getenv("ALERT_FROM_EMAIL", "")
-APP_PASSWORD = os.getenv("ALERT_APP_PASSWORD", "").replace(" ", "")
-TO_EMAIL     = os.getenv("ALERT_TO_EMAIL") or FROM_EMAIL
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+FROM_EMAIL   = os.getenv("ALERT_FROM_EMAIL", "onboarding@resend.dev")
+TO_EMAIL     = os.getenv("ALERT_TO_EMAIL", "")
 MIN_SEVERITY = os.getenv("ALERT_MIN_SEVERITY", "High")
 COOLDOWN_SEC = int(os.getenv("ALERT_COOLDOWN_SEC", "60"))
 
@@ -67,8 +66,8 @@ class AlertRequest(BaseModel):
 
 
 def _should_send(attack_type: str, severity: str, force: bool) -> tuple[bool, str]:
-    if not FROM_EMAIL or not APP_PASSWORD:
-        return False, "email credentials not configured (ALERT_FROM_EMAIL / ALERT_APP_PASSWORD)"
+    if not RESEND_API_KEY or not TO_EMAIL:
+        return False, "email not configured (RESEND_API_KEY / ALERT_TO_EMAIL)"
     if force:
         return True, ""
     if _SEVERITY_RANK.get(severity, 0) < _SEVERITY_RANK.get(MIN_SEVERITY, 2):
@@ -81,31 +80,11 @@ def _should_send(attack_type: str, severity: str, force: bool) -> tuple[bool, st
     return True, ""
 
 
-def _build_message(a: AlertRequest) -> EmailMessage:
+def _build_message(a: AlertRequest) -> dict:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    msg = EmailMessage()
-    msg["Subject"] = f"[EVOSHIELD] {a.severity} alert: {a.attack_type} from {a.source_ip}"
-    msg["From"] = FROM_EMAIL
-    msg["To"]   = TO_EMAIL
-    msg.set_content(
-        f"""EVOSHIELD Web Application Firewall — Attack Detected
-
-Severity      : {a.severity}
-Attack Type   : {a.attack_type}
-Status        : {a.status}
-AI Confidence : {a.ai_score}
-Source IP     : {a.source_ip}
-Method        : {a.method}
-Path          : {a.path}
-Payload       : {(a.payload or '')[:500]}
-Time          : {ts}
-
-Automated alert from EVOSHIELD. Open the dashboard for full context.
-"""
-    )
     color = {"Critical": "#f44336", "High": "#ff9800",
              "Medium": "#ffc107", "Low": "#00e676"}.get(a.severity, "#ff9800")
-    msg.add_alternative(f"""\
+    html = f"""\
 <html><body style="font-family:Segoe UI,Arial,sans-serif;background:#0a0e1a;color:#e0e0e0;padding:24px;">
   <div style="max-width:560px;margin:auto;background:#0d1b2a;border-radius:12px;border:1px solid rgba(255,255,255,0.08);overflow:hidden;">
     <div style="background:{color};padding:16px 24px;">
@@ -124,16 +103,25 @@ Automated alert from EVOSHIELD. Open the dashboard for full context.
       <p style="margin-top:20px;color:#7a8aa0;font-size:12px;">Automated alert from EVOSHIELD WAF.</p>
     </div>
   </div>
-</body></html>""", subtype="html")
-    return msg
+</body></html>"""
+    return {
+        "from": FROM_EMAIL,
+        "to": [TO_EMAIL],
+        "subject": f"[EVOSHIELD] {a.severity} alert: {a.attack_type} from {a.source_ip}",
+        "html": html,
+    }
 
 
-def _send_sync(msg: EmailMessage) -> None:
-    ctx = ssl.create_default_context()
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-        server.starttls(context=ctx)
-        server.login(FROM_EMAIL, APP_PASSWORD)
-        server.send_message(msg)
+def _send_sync(msg: dict) -> None:
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=_json.dumps(msg).encode(),
+        method="POST",
+    )
+    req.add_header("Authorization", f"Bearer {RESEND_API_KEY}")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        resp.read()
 
 
 def _supabase_request(method: str, path: str, body=None, base="rest/v1", retries=2):
@@ -249,7 +237,7 @@ def _fanout_notifications(a: "AlertRequest") -> int:
 def alert_status():
     """Report whether email alerts are configured (without leaking the password)."""
     return {
-        "configured":        bool(FROM_EMAIL and APP_PASSWORD),
+        "configured":        bool(RESEND_API_KEY and TO_EMAIL),
         "from_email":        FROM_EMAIL or None,
         "to_email":          TO_EMAIL or None,
         "min_severity":      MIN_SEVERITY,

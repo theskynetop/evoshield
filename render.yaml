@@ -18,9 +18,9 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         value: '["https://evoshield-waf.vercel.app","https://frontend-one-ivory-daqy44n4d5.vercel.app","http://localhost:5173"]'
-      - key: ALERT_FROM_EMAIL
+      - key: RESEND_API_KEY
         sync: false
-      - key: ALERT_APP_PASSWORD
+      - key: ALERT_FROM_EMAIL
         sync: false
       - key: ALERT_TO_EMAIL
         sync: false
