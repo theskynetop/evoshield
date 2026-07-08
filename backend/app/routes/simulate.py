@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .alerts import _notify_all_users, _SEVERITY_TO_TYPE
+from .alerts import _notify_all_users, _SEVERITY_TO_TYPE, _should_send, _send_sync, _build_message, AlertRequest
 
 try:
     from dotenv import load_dotenv, find_dotenv
@@ -177,7 +177,10 @@ def simulate_attack(req: SimulateRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Insert failed: {e}")
 
-    # Fire in-app notifications (one row per attack, typed by severity).
+    # Fire in-app notifications (one row per attack, typed by severity) and,
+    # for high-severity attacks, an email alert (subject to the same
+    # severity/cooldown gate used by the real detection path).
+    email_sent = False
     if req.notify:
         for r in rows:
             if r["attack_type"] == "Normal":
@@ -189,9 +192,28 @@ def simulate_attack(req: SimulateRequest):
                 f"{r['attack_type']} from {r['source_ip']} on {r['method']} {r['path']} — {r['status']}",
             )
 
+            alert = AlertRequest(
+                attack_type=r["attack_type"],
+                severity=r["severity"],
+                source_ip=r["source_ip"],
+                path=r["path"],
+                method=r["method"],
+                ai_score=r["ai_score"],
+                payload=r["payload"],
+                status=r["status"],
+            )
+            ok, _reason = _should_send(alert.attack_type, alert.severity, alert.force)
+            if ok:
+                try:
+                    _send_sync(_build_message(alert))
+                    email_sent = True
+                except Exception as e:
+                    print(f"  [simulate] email send failed: {e}")
+
     return {
         "inserted": len(rows),
         "attack_type": req.attack_type,
         "notified_users": notified_total,
+        "email_sent": email_sent,
         "logs": rows,
     }
