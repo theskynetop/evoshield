@@ -15,9 +15,11 @@ Credentials come from environment variables (loaded from the project .env):
 import os
 import time
 import threading
+import smtplib
 import urllib.request
 import urllib.error
 import json as _json
+from email.mime.text import MIMEText
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -45,6 +47,11 @@ TO_EMAIL     = os.getenv("ALERT_TO_EMAIL", "")
 MIN_SEVERITY = os.getenv("ALERT_MIN_SEVERITY", "High")
 COOLDOWN_SEC = int(os.getenv("ALERT_COOLDOWN_SEC", "60"))
 
+# Local-dev fallback: Gmail SMTP via an App Password. Render's free plan
+# blocks outbound SMTP ports, so production must use RESEND_API_KEY instead;
+# this only kicks in when RESEND_API_KEY is absent (i.e. local .env).
+ALERT_APP_PASSWORD = os.getenv("ALERT_APP_PASSWORD", "")
+
 SUPABASE_URL         = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
@@ -66,8 +73,8 @@ class AlertRequest(BaseModel):
 
 
 def _should_send(attack_type: str, severity: str, force: bool) -> tuple[bool, str]:
-    if not RESEND_API_KEY or not TO_EMAIL:
-        return False, "email not configured (RESEND_API_KEY / ALERT_TO_EMAIL)"
+    if not TO_EMAIL or not (RESEND_API_KEY or ALERT_APP_PASSWORD):
+        return False, "email not configured (RESEND_API_KEY / ALERT_APP_PASSWORD / ALERT_TO_EMAIL)"
     if force:
         return True, ""
     if _SEVERITY_RANK.get(severity, 0) < _SEVERITY_RANK.get(MIN_SEVERITY, 2):
@@ -112,7 +119,7 @@ def _build_message(a: AlertRequest) -> dict:
     }
 
 
-def _send_sync(msg: dict) -> None:
+def _send_via_resend(msg: dict) -> None:
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=_json.dumps(msg).encode(),
@@ -122,6 +129,26 @@ def _send_sync(msg: dict) -> None:
     req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=15) as resp:
         resp.read()
+
+
+def _send_via_smtp(msg: dict) -> None:
+    email = MIMEText(msg["html"], "html")
+    email["Subject"] = msg["subject"]
+    email["From"] = msg["from"]
+    email["To"] = ", ".join(msg["to"])
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+        server.starttls()
+        server.login(msg["from"], ALERT_APP_PASSWORD)
+        server.sendmail(msg["from"], msg["to"], email.as_string())
+
+
+def _send_sync(msg: dict) -> None:
+    # Prefer Resend (works in production); fall back to Gmail SMTP for local
+    # dev when only an App Password is configured.
+    if RESEND_API_KEY:
+        _send_via_resend(msg)
+    else:
+        _send_via_smtp(msg)
 
 
 def _supabase_request(method: str, path: str, body=None, base="rest/v1", retries=2):
@@ -237,7 +264,7 @@ def _fanout_notifications(a: "AlertRequest") -> int:
 def alert_status():
     """Report whether email alerts are configured (without leaking the password)."""
     return {
-        "configured":        bool(RESEND_API_KEY and TO_EMAIL),
+        "configured":        bool(TO_EMAIL and (RESEND_API_KEY or ALERT_APP_PASSWORD)),
         "from_email":        FROM_EMAIL or None,
         "to_email":          TO_EMAIL or None,
         "min_severity":      MIN_SEVERITY,

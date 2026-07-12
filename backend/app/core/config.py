@@ -27,6 +27,10 @@ class Settings(BaseSettings):
         "https://*.vercel.app",
     ]
 
+    ALERT_FROM_EMAIL:   str = ""
+    ALERT_APP_PASSWORD: str = ""
+    ALERT_TO_EMAIL:     str = ""
+
     class Config:
         env_file = ".env"
 
